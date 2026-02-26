@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>五子棋 · 人机对战（强AI）</title>
+<style>
+  body {
+    background: #f6f6f6;
+    font-family: sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  h2 { margin: 12px 0; }
+  #board {
+    background: #f2d6a2;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+    cursor: pointer;
+  }
+  .controls { margin-top: 10px; }
+  button {
+    padding: 6px 14px;
+    margin: 0 6px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+
+<h2>五子棋（电脑先手 · 强AI）</h2>
+<canvas id="board" width="480" height="480"></canvas>
+
+<div class="controls">
+  <button onclick="undo()">悔棋</button>
+  <button onclick="resetGame()">重新开局</button>
+</div>
+
+<script>
+const SIZE = 15;
+const CELL = 32;
+const MARGIN = 16;
+
+const EMPTY = 0;
+const AI = 1;
+const HUMAN = 2;
+
+const MAX_CANDIDATES = 8;
+
+const canvas = document.getElementById("board");
+const ctx = canvas.getContext("2d");
+
+let board, history, gameOver, lastMove;
+
+init();
+canvas.addEventListener("click", humanMove);
+
+/* ========== 初始化 & 绘制 ========== */
+
+function init() {
+  board = Array.from({ length: SIZE }, () => Array(SIZE).fill(EMPTY));
+  history = [];
+  lastMove = null;
+  gameOver = false;
+  drawBoard();
+  aiMove();
+}
+
+function resetGame() { init(); }
+
+function drawBoard() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // 棋盘
+  for (let i = 0; i < SIZE; i++) {
+    let p = MARGIN + i * CELL;
+    ctx.beginPath();
+    ctx.moveTo(MARGIN, p);
+    ctx.lineTo(MARGIN + CELL * (SIZE - 1), p);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(p, MARGIN);
+    ctx.lineTo(p, MARGIN + CELL * (SIZE - 1));
+    ctx.stroke();
+  }
+
+  // 棋子
+  history.forEach((m, i) => {
+    const color = i % 2 === 0 ? AI : HUMAN;
+    drawPiece(m.r, m.c, color);
+
+    // 最近一步标记
+    if (lastMove && m.r === lastMove.r && m.c === lastMove.c) {
+      drawLastMark(m.r, m.c);
+    }
+  });
+}
+
+function drawPiece(r, c, color) {
+  const x = MARGIN + c * CELL;
+  const y = MARGIN + r * CELL;
+  const r0 = CELL / 2 - 2;
+  ctx.beginPath();
+  ctx.arc(x, y, r0, 0, Math.PI * 2);
+  ctx.fillStyle = color === AI ? "#000" : "#fff";
+  ctx.fill();
+  ctx.stroke();
+}
+
+function drawLastMark(r, c) {
+  const x = MARGIN + c * CELL;
+  const y = MARGIN + r * CELL;
+  ctx.beginPath();
+  ctx.arc(x, y, 4, 0, Math.PI * 2);
+  ctx.fillStyle = "red";
+  ctx.fill();
+}
+
+/* ========== 操作 ========== */
+
+function humanMove(e) {
+  if (gameOver) return;
+
+  const rect = canvas.getBoundingClientRect();
+  const r = Math.round((e.clientY - rect.top - MARGIN) / CELL);
+  const c = Math.round((e.clientX - rect.left - MARGIN) / CELL);
+
+  if (!valid(r, c)) return;
+
+  place(r, c, HUMAN);
+  if (checkWin(r, c, HUMAN)) {
+    gameOver = true;
+    alert("你赢了！");
+    return;
+  }
+  setTimeout(aiMove, 120);
+}
+
+function aiMove() {
+  if (gameOver) return;
+  const move = bestMove();
+  if (!move) return;
+  place(move.r, move.c, AI);
+  if (checkWin(move.r, move.c, AI)) {
+    gameOver = true;
+    alert("电脑获胜");
+  }
+}
+
+function place(r, c, color) {
+  board[r][c] = color;
+  history.push({ r, c });
+  lastMove = { r, c };
+  drawBoard();
+}
+
+function undo() {
+  if (!history.length) return;
+  const last = history.pop();
+  board[last.r][last.c] = EMPTY;
+  lastMove = history.length ? history[history.length - 1] : null;
+  gameOver = false;
+  drawBoard();
+}
+
+function valid(r, c) {
+  return r >= 0 && r < SIZE && c >= 0 && c < SIZE && board[r][c] === EMPTY;
+}
+
+/* ========== AI（保持原难度，不改） ========== */
+
+function bestMove() {
+  const candidates = getCandidates();
+
+  for (const m of candidates) {
+    board[m.r][m.c] = AI;
+    if (checkWin(m.r, m.c, AI)) {
+      board[m.r][m.c] = EMPTY;
+      return m;
+    }
+    board[m.r][m.c] = EMPTY;
+  }
+
+  for (const m of candidates) {
+    board[m.r][m.c] = HUMAN;
+    if (checkWin(m.r, m.c, HUMAN)) {
+      board[m.r][m.c] = EMPTY;
+      return m;
+    }
+    board[m.r][m.c] = EMPTY;
+  }
+
+  let best = null, bestScore = -Infinity;
+  for (const m of candidates) {
+    board[m.r][m.c] = AI;
+    const score = minimax(candidates);
+    board[m.r][m.c] = EMPTY;
+    if (score > bestScore) {
+      bestScore = score;
+      best = m;
+    }
+  }
+  return best;
+}
+
+function minimax(candidates) {
+  let worst = Infinity;
+  for (const m of candidates) {
+    if (!valid(m.r, m.c)) continue;
+    board[m.r][m.c] = HUMAN;
+    if (checkWin(m.r, m.c, HUMAN)) {
+      board[m.r][m.c] = EMPTY;
+      return -100000;
+    }
+    worst = Math.min(worst, evaluateBoard());
+    board[m.r][m.c] = EMPTY;
+  }
+  return worst;
+}
+
+function getCandidates() {
+  const arr = [];
+  for (let r = 0; r < SIZE; r++) {
+    for (let c = 0; c < SIZE; c++) {
+      if (board[r][c] !== EMPTY || !near(r, c)) continue;
+      const s = scorePoint(r, c, AI) + scorePoint(r, c, HUMAN) * 0.9;
+      arr.push({ r, c, s });
+    }
+  }
+  arr.sort((a, b) => b.s - a.s);
+  return arr.slice(0, MAX_CANDIDATES);
+}
+
+function near(r, c) {
+  for (let dr = -2; dr <= 2; dr++) {
+    for (let dc = -2; dc <= 2; dc++) {
+      const nr = r + dr, nc = c + dc;
+      if (nr >= 0 && nr < SIZE && nc >= 0 && nc < SIZE && board[nr][nc] !== EMPTY)
+        return true;
+    }
+  }
+  return false;
+}
+
+function evaluateBoard() {
+  let s = 0;
+  for (let r = 0; r < SIZE; r++) {
+    for (let c = 0; c < SIZE; c++) {
+      if (board[r][c] === AI) s += scorePoint(r, c, AI);
+      else if (board[r][c] === HUMAN) s -= scorePoint(r, c, HUMAN);
+    }
+  }
+  return s;
+}
+
+function scorePoint(r, c, color) {
+  const dirs = [[1,0],[0,1],[1,1],[1,-1]];
+  let total = 0;
+  for (const [dx, dy] of dirs) {
+    let count = 1, block = 0;
+    for (let d = 1; d <= 4; d++) {
+      const nr = r + dx * d, nc = c + dy * d;
+      if (nr < 0 || nr >= SIZE || nc < 0 || nc >= SIZE) { block++; break; }
+      if (board[nr][nc] === color) count++;
+      else if (board[nr][nc] !== EMPTY) { block++; break; }
+      else break;
+    }
+    for (let d = 1; d <= 4; d++) {
+      const nr = r - dx * d, nc = c - dy * d;
+      if (nr < 0 || nr >= SIZE || nc < 0 || nc >= SIZE) { block++; break; }
+      if (board[nr][nc] === color) count++;
+      else if (board[nr][nc] !== EMPTY) { block++; break; }
+      else break;
+    }
+    total += shapeScore(count, block);
+  }
+  return total;
+}
+
+function shapeScore(count, block) {
+  if (count >= 5) return 100000;
+  if (block === 0) {
+    if (count === 4) return 20000;
+    if (count === 3) return 3000;
+    if (count === 2) return 300;
+  }
+  if (block === 1) {
+    if (count === 4) return 3000;
+    if (count === 3) return 300;
+    if (count === 2) return 30;
+  }
+  return 5;
+}
+
+function checkWin(r, c, color) {
+  const dirs = [[1,0],[0,1],[1,1],[1,-1]];
+  for (const [dx, dy] of dirs) {
+    let cnt = 1;
+    for (let d = 1; d <= 4; d++) {
+      const nr = r + dx * d, nc = c + dy * d;
+      if (nr < 0 || nr >= SIZE || nc < 0 || nc >= SIZE) break;
+      if (board[nr][nc] === color) cnt++; else break;
+    }
+    for (let d = 1; d <= 4; d++) {
+      const nr = r - dx * d, nc = c - dy * d;
+      if (nr < 0 || nr >= SIZE || nc < 0 || nc >= SIZE) break;
+      if (board[nr][nc] === color) cnt++; else break;
+    }
+    if (cnt >= 5) return true;
+  }
+  return false;
+}
+</script>
+
+</body>
+</html>
