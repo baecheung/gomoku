@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>3D 魔方编辑器</title>
+
+<style>
+body{
+    margin:0;
+    overflow:hidden;
+    background:linear-gradient(135deg,#2c2f36,#1c1f24);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto;
+}
+
+/* 控制面板 */
+#ui{
+    position:absolute;
+    top:20px;
+    left:20px;
+    z-index:10;
+    background:#f4f6f8;
+    padding:16px;
+    border-radius:14px;
+    box-shadow:0 8px 25px rgba(0,0,0,0.35);
+    width:220px;
+}
+
+/* 标题 */
+.ui-title{
+    font-size:15px;
+    font-weight:600;
+    margin-bottom:10px;
+    color:#333;
+}
+
+/* 模式按钮容器 */
+.mode-group{
+    display:flex;
+    gap:8px;
+    margin-bottom:12px;
+}
+
+.mode-btn{
+    flex:1;
+    padding:8px 0;
+    border-radius:8px;
+    border:1px solid #ccc;
+    background:white;
+    cursor:pointer;
+    text-align:center;
+    font-weight:500;
+    transition:all 0.2s;
+}
+
+.mode-btn:hover{
+    background:#eaecef;
+}
+
+.mode-selected{
+    background:#2979ff;
+    color:white;
+    border-color:#2979ff;
+}
+
+/* 颜色面板 */
+.color-group{
+    display:flex;
+    flex-wrap:wrap;
+    gap:6px;
+    margin-bottom:14px;
+}
+
+.color-btn{
+    width:30px;
+    height:30px;
+    border-radius:6px;
+    border:2px solid #bbb;
+    cursor:pointer;
+    transition:all 0.15s;
+}
+
+.color-btn:hover{
+    transform:scale(1.05);
+}
+
+.color-selected{
+    border:3px solid #2979ff;
+}
+
+/* 旋转按钮 */
+.rotate-group button{
+    margin:3px 3px;
+    padding:4px 6px;
+    font-size:12px;
+    border-radius:6px;
+    border:1px solid #ccc;
+    background:white;
+    cursor:pointer;
+}
+
+.rotate-group button:hover{
+    background:#eaecef;
+}
+</style>
+</head>
+
+<body>
+
+<div id="ui">
+    <div class="ui-title">模式</div>
+
+    <div class="mode-group">
+        <div id="rotateMode" class="mode-btn mode-selected">旋转</div>
+        <div id="paintMode" class="mode-btn">上色</div>
+    </div>
+
+    <div class="ui-title">颜色</div>
+    <div id="colorPanel" class="color-group"></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128/examples/js/controls/OrbitControls.js"></script>
+
+<script>
+let scene=new THREE.Scene();
+scene.background=new THREE.Color(0x2a2d33);
+
+let camera=new THREE.PerspectiveCamera(45,window.innerWidth/window.innerHeight,0.1,1000);
+camera.position.set(6,6,6);
+
+let renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(window.innerWidth,window.innerHeight);
+document.body.appendChild(renderer.domElement);
+
+let controls=new THREE.OrbitControls(camera,renderer.domElement);
+controls.enableDamping=true;
+
+scene.add(new THREE.AmbientLight(0xffffff,0.6));
+let light=new THREE.DirectionalLight(0xffffff,0.8);
+light.position.set(5,10,7);
+scene.add(light);
+
+let raycaster=new THREE.Raycaster();
+let mouse=new THREE.Vector2();
+let cubes=[];
+
+const colors={
+    white:0xffffff,
+    yellow:0xffff00,
+    red:0xff0000,
+    orange:0xff8800,
+    blue:0x0000ff,
+    green:0x00ff00,
+    erase:0x000000
+};
+
+let paintMode=false;
+let currentColor=null;
+
+/* 模式切换 */
+const rotateBtn=document.getElementById("rotateMode");
+const paintBtn=document.getElementById("paintMode");
+
+rotateBtn.onclick=()=>{
+    paintMode=false;
+    currentColor=null;
+    rotateBtn.classList.add("mode-selected");
+    paintBtn.classList.remove("mode-selected");
+    clearColorSelection();
+};
+
+paintBtn.onclick=()=>{
+    paintMode=true;
+    rotateBtn.classList.remove("mode-selected");
+    paintBtn.classList.add("mode-selected");
+};
+
+/* 颜色按钮 */
+const panel=document.getElementById("colorPanel");
+
+Object.keys(colors).forEach(key=>{
+    let btn=document.createElement("div");
+    btn.className="color-btn";
+    btn.style.background="#" + colors[key].toString(16).padStart(6,'0');
+
+    btn.onclick=()=>{
+        if(!paintMode)return;
+        currentColor=colors[key];
+        clearColorSelection();
+        btn.classList.add("color-selected");
+    };
+
+    panel.appendChild(btn);
+});
+
+function clearColorSelection(){
+    document.querySelectorAll(".color-btn")
+        .forEach(b=>b.classList.remove("color-selected"));
+}
+
+/* 创建魔方 */
+function createCube(x,y,z){
+    let geo=new THREE.BoxGeometry(0.95,0.95,0.95);
+    let materials=[];
+    for(let i=0;i<6;i++){
+        materials.push(new THREE.MeshStandardMaterial({color:0x000000,roughness:0.4}));
+    }
+    let cube=new THREE.Mesh(geo,materials);
+    cube.position.set(x,y,z);
+
+    let edges=new THREE.EdgesGeometry(geo);
+    cube.add(new THREE.LineSegments(edges,new THREE.LineBasicMaterial({color:0xffffff})));
+
+    scene.add(cube);
+    cubes.push(cube);
+}
+
+for(let x=-1;x<=1;x++)
+for(let y=-1;y<=1;y++)
+for(let z=-1;z<=1;z++)
+createCube(x,y,z);
+
+/* 默认中心块着色 */
+cubes.forEach(c=>{
+    let p=c.position;
+    if(p.x===0 && p.y===-1 && p.z===0) c.material[3].color.set(0xffffff); // 底白
+    if(p.x===0 && p.y===1 && p.z===0) c.material[2].color.set(0xffff00); // 顶黄
+    if(p.x===0 && p.y===0 && p.z===1) c.material[4].color.set(0xff0000); // 前红
+    if(p.x===1 && p.y===0 && p.z===0) c.material[0].color.set(0x0000ff); // 右蓝
+    if(p.x===0 && p.y===0 && p.z===-1) c.material[5].color.set(0xff8800); // 后橙
+    if(p.x===-1 && p.y===0 && p.z===0) c.material[1].color.set(0x00ff00); // 左绿
+});
+
+/* 点击与拖动区分 */
+let downPos=null;
+
+renderer.domElement.addEventListener("pointerdown",e=>{
+    downPos={x:e.clientX,y:e.clientY};
+});
+
+renderer.domElement.addEventListener("pointerup",e=>{
+    if(!paintMode||currentColor===null)return;
+
+    let dx=e.clientX-downPos.x;
+    let dy=e.clientY-downPos.y;
+    if(Math.sqrt(dx*dx+dy*dy)>5)return;
+
+    mouse.x=(e.clientX/window.innerWidth)*2-1;
+    mouse.y=-(e.clientY/window.innerHeight)*2+1;
+
+    raycaster.setFromCamera(mouse,camera);
+    let intersects=raycaster.intersectObjects(cubes);
+
+    if(intersects.length>0){
+        let faceIndex=Math.floor(intersects[0].faceIndex/2);
+        intersects[0].object.material[faceIndex].color.set(currentColor);
+    }
+});
+
+function animate(){
+    requestAnimationFrame(animate);
+    controls.update();
+    renderer.render(scene,camera);
+}
+animate();
+
+window.addEventListener('resize',()=>{
+    camera.aspect=window.innerWidth/window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth,window.innerHeight);
+});
+</script>
+</body>
+</html>
